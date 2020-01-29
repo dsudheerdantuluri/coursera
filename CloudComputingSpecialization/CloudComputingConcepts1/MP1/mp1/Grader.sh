@@ -128,6 +128,7 @@ tmp=0
 for i in $failednode
 do
 	accuracycount=`grep removed dbg.log | sort -u | grep -v $i | wc -l`
+	echo "accuracycount: $accuracycount"
 	if [ $accuracycount -eq 20 ]; then
 		tmp=`expr $tmp + 2`
 		grade=`expr $grade + 2`
