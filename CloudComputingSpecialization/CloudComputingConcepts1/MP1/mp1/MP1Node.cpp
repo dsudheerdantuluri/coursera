@@ -211,6 +211,34 @@ void MP1Node::checkMessages() {
     return;
 }
 
+bool MP1Node::SendMessage(Address *ToAddr,
+                          MsgTypes MsgType)
+{
+    auto OutputMsgSize = sizeof(MessageHdr) + sizeof(int) * ml.size();
+    MessageHdr *OutputMsg = (MessageHdr *)malloc(OutputMsgSize);
+
+    if (!OutputMsg)
+    {
+        return false;
+    }
+
+    OutputMsg->msgType = MsgType;
+    OutputMsg->fromAddr = memberNode->addr;
+    OutputMsg->heartbeat = par->getcurrtime();
+    auto index = 0;
+    for (const auto &entry : ml)
+    {
+        OutputMsg->ml[index++] = entry.first;
+    }
+    OutputMsg->size = index;
+
+    emulNet->ENsend(&memberNode->addr, ToAddr, (char *)OutputMsg, OutputMsgSize);
+
+    free(OutputMsg);
+
+    return true;
+}
+
 /**
  * FUNCTION NAME: recvCallBack
  *
@@ -239,56 +267,40 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
     {
         int id = InputMsg->fromAddr.addr[0];
 
-        if (ml.find(id) == ml.end())
+        auto it = ml.find(id);
+
+        if (it == ml.end())
         {
             ml[id] = par->getcurrtime();
-        
             log->logNodeAdd(&memberNode->addr, &InputMsg->fromAddr);
-
-            auto OutputMsgSize = sizeof(MessageHdr) + sizeof(int) * ml.size();
-            MessageHdr *OutputMsg = (MessageHdr *)malloc(OutputMsgSize);
-
-            if (!OutputMsg)
-            {
-                return false;
-            }
-
-            OutputMsg->msgType = JOINREP;
-            OutputMsg->fromAddr = memberNode->addr;
-            OutputMsg->heartbeat = par->getcurrtime();
-            auto index = 0;
-            for (const auto &entry : ml)
-            {
-                OutputMsg->ml[index++] = entry.first;
-            }
-            OutputMsg->size = index;
-
-            emulNet->ENsend(&memberNode->addr, &InputMsg->fromAddr, (char *)OutputMsg, OutputMsgSize);
-
-            free(OutputMsg);
         }
 
-        break;
+        return SendMessage(&InputMsg->fromAddr, JOINREP);
     }
 
     case JOINREP:
     {
         int id = InputMsg->fromAddr.addr[0];
+
         auto it = ml.find(id);
 
-        if (it == ml.end()) { 
+        if (it == ml.end())
+        {
             ml[id] = InputMsg->heartbeat;
             log->logNodeAdd(&memberNode->addr, &InputMsg->fromAddr);
             memberNode->inGroup = true;
         }
 
-        int selfid = memberNode->addr.addr[0]; 
-        for (int i = 0; i < InputMsg->size; ++i) {
-
+        int selfid = memberNode->addr.addr[0];
+        for (int i = 0; i < InputMsg->size; ++i)
+        {
             id = InputMsg->ml[i];
-            if (id == selfid) continue;
+            if (id == selfid)
+            {
+                continue;
+            }
             auto it = ml.find(id);
-            if ( it == ml.end() )
+            if (it == ml.end())
             {
                 ml[id] = InputMsg->heartbeat;
                 Address member;
@@ -298,36 +310,12 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
             }
         }
 
-        break; 
+        break;
     }
 
     case PING:
     {
-        int id = InputMsg->fromAddr.addr[0];
-
-        auto OutputMsgSize = sizeof(MessageHdr) + sizeof(int) * ml.size();
-        MessageHdr *OutputMsg = (MessageHdr *)malloc(OutputMsgSize);
-
-        if (!OutputMsg)
-        {
-            return false;
-        }
-
-        OutputMsg->msgType = PONG;
-        OutputMsg->fromAddr = memberNode->addr;
-        OutputMsg->heartbeat = par->getcurrtime();
-        auto index = 0;
-        for (const auto &entry : ml)
-        {
-            OutputMsg->ml[index++] = entry.first;
-        }
-        OutputMsg->size = index;
-
-        emulNet->ENsend(&memberNode->addr, &InputMsg->fromAddr, (char *)OutputMsg, OutputMsgSize);
-
-        free(OutputMsg);
-
-        break;
+        return SendMessage(&InputMsg->fromAddr, PONG);
     }
 
     case PONG:
@@ -344,10 +332,6 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
         else
         {
             ml[id] = InputMsg->heartbeat;
-#ifdef DEBUGLOG
-            sprintf(s, "PONG1 ...");
-            log->LOG(&memberNode->addr, s);
-#endif
             log->logNodeAdd(&memberNode->addr, &InputMsg->fromAddr);
         }
 
@@ -361,41 +345,11 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
             auto it = ml.find(id);
             if (it == ml.end())
             {
-                //ml[id] = InputMsg->heartbeat;
                 Address member;
                 memset(&member, 0, sizeof(Address));
                 member.addr[0] = id;
-#ifdef DEBUGLOG
-                sprintf(s, "PONG2 ...%d", InputMsg->fromAddr.addr[0]);
-                log->LOG(&memberNode->addr, s);
-#endif
-                //log->logNodeAdd(&memberNode->addr, &member);
-                
-                auto OutputMsgSize = sizeof(MessageHdr) + sizeof(int) * ml.size();
-                MessageHdr *OutputMsg = (MessageHdr *)malloc(OutputMsgSize);
 
-                if (!OutputMsg)
-                {
-                    return false;
-                }
-
-                OutputMsg->msgType = PING;
-                OutputMsg->fromAddr = memberNode->addr;
-                OutputMsg->heartbeat = par->getcurrtime();
-                auto index = 0;
-                for (const auto &entry : ml)
-                {
-                    OutputMsg->ml[index++] = entry.first;
-                }
-                OutputMsg->size = index;
-
-#ifdef DEBUGLOG
-        sprintf(s, "Sending ping2 to %d...", id);
-        log->LOG(&memberNode->addr, s);
-#endif
-                emulNet->ENsend(&memberNode->addr, &member, (char *)OutputMsg, OutputMsgSize);
-
-                free(OutputMsg);
+                SendMessage(&member, PING);
             }
         }
         break; 
@@ -458,36 +412,12 @@ void MP1Node::nodeLoopOps() {
     //
     for (const auto &entry : ml)
     {
-        auto OutputMsgSize = sizeof(MessageHdr) + sizeof(int) * ml.size();
-        MessageHdr *OutputMsg = (MessageHdr *)malloc(OutputMsgSize);
-
-        if (!OutputMsg)
-        {
-            continue;
-        }
-
-        OutputMsg->msgType = PING;
-        OutputMsg->fromAddr = memberNode->addr;
-        OutputMsg->heartbeat = par->getcurrtime();
-        auto index = 0;
-        for (const auto &entry1 : ml)
-        {
-            OutputMsg->ml[index++] = entry1.first;
-        }
-        OutputMsg->size = index;
-
         Address ToAddr;
         memset(&ToAddr, 0, sizeof(Address));
         *(int *)(&ToAddr.addr) = entry.first;
         *(short *)(&ToAddr.addr[4]) = 0;
-        
-#ifdef DEBUGLOG
-        sprintf(s, "Sending ping1 to %d...", entry.first);
-        log->LOG(&memberNode->addr, s);
-#endif
-        emulNet->ENsend(&memberNode->addr, &ToAddr, (char *)OutputMsg, OutputMsgSize);
-            
-        free(OutputMsg);
+
+        SendMessage(&ToAddr , PING);
     }
 
     return;

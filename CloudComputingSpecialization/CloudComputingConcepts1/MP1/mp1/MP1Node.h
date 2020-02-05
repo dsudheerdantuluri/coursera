@@ -61,7 +61,11 @@ private:
 	Params *par;
 	Member *memberNode;
 	char NULLADDR[6];
+	// membership list : key-node id, value-node hb;
 	map<int,int> ml;
+
+private:
+    bool SendMessage(Address *, MsgTypes);
 
 public:
 	MP1Node(Member *, Params *, EmulNet *, Log *, Address *);
