@@ -249,10 +249,6 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
 	 * Your code goes here
 	 */
 
-#ifdef DEBUGLOG
-    static char s[1024];
-#endif
-
     if (size < (sizeof(MessageHdr)))
     {
         return false;
@@ -286,7 +282,7 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
 
         if (it == ml.end())
         {
-            ml[id] = InputMsg->heartbeat;
+            ml[id] = par->getcurrtime();
             log->logNodeAdd(&memberNode->addr, &InputMsg->fromAddr);
             memberNode->inGroup = true;
         }
@@ -299,10 +295,11 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
             {
                 continue;
             }
+
             auto it = ml.find(id);
             if (it == ml.end())
             {
-                ml[id] = InputMsg->heartbeat;
+                ml[id] = par->getcurrtime();
                 Address member;
                 memset(&member, 0, sizeof(Address));
                 member.addr[0] = id;
@@ -325,13 +322,11 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
 
         if (it != ml.end())
         {
-            ml[id] = InputMsg->heartbeat;
-            sprintf(s, "PONG...%d", InputMsg->fromAddr.addr[0]);
-            log->LOG(&memberNode->addr, s);
+            ml[id] = par->getcurrtime();
         }
         else
         {
-            ml[id] = InputMsg->heartbeat;
+            ml[id] = par->getcurrtime();
             log->logNodeAdd(&memberNode->addr, &InputMsg->fromAddr);
         }
 
@@ -340,8 +335,12 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
         {
 
             id = InputMsg->ml[i];
+
             if (id == selfid)
+            {
                 continue;
+            }
+
             auto it = ml.find(id);
             if (it == ml.end())
             {
@@ -352,12 +351,14 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
                 SendMessage(&member, PING);
             }
         }
-        break; 
+        break;
     }
+
     default:
     {
         return false;
     }
+    
     }
 
     return true;
@@ -375,10 +376,6 @@ void MP1Node::nodeLoopOps() {
 	/*
 	 * Your code goes here
 	 */
-
-#ifdef DEBUGLOG
-    static char s[1024];
-#endif
 
     //
     // Collect nodes which have not ponged for a while
