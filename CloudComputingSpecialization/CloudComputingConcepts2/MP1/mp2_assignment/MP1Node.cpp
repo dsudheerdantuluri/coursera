@@ -131,13 +131,15 @@ int MP1Node::introduceSelfToGroup(Address *joinaddr) {
         memberNode->inGroup = true;
     }
     else {
-        size_t msgsize = sizeof(MessageHdr) + sizeof(joinaddr->addr) + sizeof(long) + 1;
+        size_t msgsize = sizeof(MessageHdr);
         msg = (MessageHdr *) malloc(msgsize * sizeof(char));
 
         // create JOINREQ message: format of data is {struct Address myaddr}
         msg->msgType = JOINREQ;
-        memcpy((char *)(msg+1), &memberNode->addr.addr, sizeof(memberNode->addr.addr));
-        memcpy((char *)(msg+1) + 1 + sizeof(memberNode->addr.addr), &memberNode->heartbeat, sizeof(long));
+        memcpy( (void *) &msg->fromAddr, &memberNode->addr, sizeof(memberNode->addr));
+        memcpy( (void *) &msg->heartbeat, &memberNode->heartbeat, sizeof(long));
+        msg->size = 0;
+        msg->ml[0] = 0;
 
 #ifdef DEBUGLOG
         sprintf(s, "Trying to join...");
@@ -209,6 +211,34 @@ void MP1Node::checkMessages() {
     return;
 }
 
+bool MP1Node::SendMessage(Address *ToAddr,
+                          MsgTypes MsgType)
+{
+    auto OutputMsgSize = sizeof(MessageHdr) + sizeof(int) * ml.size();
+    MessageHdr *OutputMsg = (MessageHdr *)malloc(OutputMsgSize);
+
+    if (!OutputMsg)
+    {
+        return false;
+    }
+
+    OutputMsg->msgType = MsgType;
+    OutputMsg->fromAddr = memberNode->addr;
+    OutputMsg->heartbeat = par->getcurrtime();
+    auto index = 0;
+    for (const auto &entry : ml)
+    {
+        OutputMsg->ml[index++] = entry.first;
+    }
+    OutputMsg->size = index;
+
+    emulNet->ENsend(&memberNode->addr, ToAddr, (char *)OutputMsg, OutputMsgSize);
+
+    free(OutputMsg);
+
+    return true;
+}
+
 /**
  * FUNCTION NAME: recvCallBack
  *
@@ -218,6 +248,120 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
 	/*
 	 * Your code goes here
 	 */
+
+    if (size < (sizeof(MessageHdr)))
+    {
+        return false;
+    }
+
+    MessageHdr *InputMsg = (MessageHdr *)data;
+
+    switch (InputMsg->msgType)
+    {
+
+    case JOINREQ:
+    {
+        int id = InputMsg->fromAddr.addr[0];
+
+        auto it = ml.find(id);
+
+        if (it == ml.end())
+        {
+            ml[id] = par->getcurrtime();
+            log->logNodeAdd(&memberNode->addr, &InputMsg->fromAddr);
+        }
+
+        return SendMessage(&InputMsg->fromAddr, JOINREP);
+    }
+
+    case JOINREP:
+    {
+        int id = InputMsg->fromAddr.addr[0];
+
+        auto it = ml.find(id);
+
+        if (it == ml.end())
+        {
+            ml[id] = par->getcurrtime();
+            log->logNodeAdd(&memberNode->addr, &InputMsg->fromAddr);
+            memberNode->inGroup = true;
+        }
+
+        int selfid = memberNode->addr.addr[0];
+        for (int i = 0; i < InputMsg->size; ++i)
+        {
+            id = InputMsg->ml[i];
+            if (id == selfid)
+            {
+                continue;
+            }
+
+            auto it = ml.find(id);
+            if (it == ml.end())
+            {
+                ml[id] = par->getcurrtime();
+                Address member;
+                memset(&member, 0, sizeof(Address));
+                member.addr[0] = id;
+                log->logNodeAdd(&memberNode->addr, &member);
+            }
+        }
+
+        break;
+    }
+
+    case PING:
+    {
+        return SendMessage(&InputMsg->fromAddr, PONG);
+    }
+
+    case PONG:
+    {
+        int id = InputMsg->fromAddr.addr[0];
+        auto it = ml.find(id);
+
+        if (it != ml.end())
+        {
+            ml[id] = par->getcurrtime();
+        }
+        else
+        {
+            ml[id] = par->getcurrtime();
+            log->logNodeAdd(&memberNode->addr, &InputMsg->fromAddr);
+        }
+
+        int selfid = memberNode->addr.addr[0];
+        for (int i = 0; i < InputMsg->size; ++i)
+        {
+
+            id = InputMsg->ml[i];
+
+            if (id == selfid)
+            {
+                continue;
+            }
+
+            auto it = ml.find(id);
+            if (it == ml.end())
+            {
+                Address member;
+                memset(&member, 0, sizeof(Address));
+                member.addr[0] = id;
+
+                SendMessage(&member, PING);
+            }
+        }
+        break;
+    }
+
+    default:
+    {
+        return false;
+    }
+    
+    }
+
+    return true;
 }
 
 /**
@@ -232,6 +376,46 @@ void MP1Node::nodeLoopOps() {
 	/*
 	 * Your code goes here
 	 */
+
+    //
+    // Collect nodes which have not ponged for a while
+    //
+    auto currenttime = par->getcurrtime();
+    vector<int> noheartbeats;
+    for (const auto entry:ml) {
+
+      if (currenttime - entry.second > 2) {
+          noheartbeats.push_back(entry.first);
+      }
+    }
+
+    //
+    // Delete those nodes
+    //
+    for (auto entry: noheartbeats) {
+    
+      ml.erase(ml.find(entry));
+      
+      Address addr;
+      memset(&addr, 0, sizeof(Address));
+      *(int *)(&addr.addr) = entry;
+      *(short *)(&addr.addr[4]) = 0;
+      
+      log->logNodeRemove(&memberNode->addr, &addr);
+    }
+
+    //  
+    // Send pings to members 
+    //
+    for (const auto &entry : ml)
+    {
+        Address ToAddr;
+        memset(&ToAddr, 0, sizeof(Address));
+        *(int *)(&ToAddr.addr) = entry.first;
+        *(short *)(&ToAddr.addr[4]) = 0;
+
+        SendMessage(&ToAddr , PING);
+    }
 
     return;
 }
