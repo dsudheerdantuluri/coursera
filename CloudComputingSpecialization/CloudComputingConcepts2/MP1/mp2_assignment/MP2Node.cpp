@@ -278,6 +278,36 @@ void MP2Node::clientDelete(string key)
 	/*
 	 * Implement this
 	 */
+    auto transID = ++g_transID;
+
+	transInfo tInfo;
+
+	tInfo.type = DELETE;
+	tInfo.key = key;
+	tInfo.value = "";
+	tInfo.numSucc = 0;
+	tInfo.numFail = 0;
+
+    acks[transID] = tInfo; 
+
+    auto replicas = findNodes(key);
+
+    for (int index = 0; index < replicas.size(); ++index) 
+	{
+		auto replica = replicas[index];
+
+		Message m(transID, 
+		          memberNode->addr, 
+				  DELETE, 
+				  key);
+
+        string data(m.toString());
+
+	    int size = emulNet->ENsend(&memberNode->addr, 
+		                           replica.getAddress(),
+								   (char *)data.c_str(),
+								   (int)data.length());
+	}
 }
 
 /**
@@ -294,30 +324,9 @@ bool MP2Node::createKeyValue(string key, string value, ReplicaType replica)
 	 * Implement this
 	 */
 	// Insert key, value, replicaType into the hash table
-	Message m(value);
+	Entry e(value, par->getcurrtime(), replica);
 
-	Entry e(m.value, par->getcurrtime(), m.replica);
-
-	auto success = ht->create(key, e.convertToString());
-
-	if (success)
-	{
-		logSuccess(CREATE,
-				   false,
-				   m.transID,
-				   key,
-				   value);
-	}
-	else
-	{
-		logFail(CREATE,
-				false,
-				m.transID,
-				key,
-				value);
-	}
-
-	return success;
+	return ht->create(key, e.convertToString());
 }
 
 /**
@@ -366,26 +375,7 @@ bool MP2Node::deletekey(string key)
 	 * Implement this
 	 */
 	// Delete the key from the local hash table
-	auto success = ht->deleteKey(key);
-
-	if (success)
-	{
-
-		log->logDeleteSuccess(&memberNode->addr,
-							  false,
-							  g_transID,
-							  key);
-	}
-	else
-	{
-
-		log->logDeleteFail(&memberNode->addr,
-						   false,
-						   g_transID,
-						   key);
-	}
-
-	return success;
+	return ht->deleteKey(key);
 }
 
 /**
@@ -430,9 +420,26 @@ void MP2Node::checkMessages()
 		case CREATE:
 		{
 			bool success = createKeyValue(m.key,
-										  message,
+										  m.value,
 										  m.replica);
-           
+
+			if (success)
+			{
+				logSuccess(CREATE,
+						   false,
+						   m.transID,
+						   m.key,
+						   m.value);
+			}
+			else
+			{
+				logFail(CREATE,
+						false,
+						m.transID,
+						m.key,
+						m.value);
+			}
+
 			Message reply(m.transID, this->memberNode->addr, REPLY, success); 
 
 			string data(reply.toString());
@@ -447,6 +454,34 @@ void MP2Node::checkMessages()
 
 		case DELETE:
 		{
+			bool success = deletekey(m.key);
+
+			if (success)
+			{
+				logSuccess(DELETE,
+						   false,
+						   m.transID,
+						   m.key,
+						   "");
+			}
+			else
+			{
+				logFail(DELETE,
+						false,
+						m.transID,
+						m.key,
+						"");
+			}
+			
+			Message reply(m.transID, this->memberNode->addr, REPLY, success); 
+
+			string data(reply.toString());
+
+			int size = emulNet->ENsend(&memberNode->addr,
+									   &m.fromAddr,
+									   (char *)data.c_str(),
+									   (int)data.length());
+
 			break;
 		}
 
