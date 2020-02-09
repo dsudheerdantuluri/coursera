@@ -119,22 +119,6 @@ ReplicaType MP2Node::GetReplicaType(int replicaIndex)
 	}
 }
 
-int MP2Node::getTarget(string key)
-{
-	auto hashKey = hashFunction(key);
-
-	int target = 0;
-	for (target = 0; target < ring.size(); ++target)
-	{
-		if (hashKey <= ring[target].getHashCode())
-		{
-			break;
-		}
-	}
-
-	return target;
-}
-
 void MP2Node::logSuccess(MessageType msgType,
                          bool coordinator,
 						 int transID,
@@ -214,8 +198,6 @@ void MP2Node::clientCreate(string key, string value)
 	 * Implement this
 	 */
 
-	auto target = getTarget(key);
-
     auto transID = ++g_transID;
 
 	transInfo tInfo;
@@ -228,13 +210,18 @@ void MP2Node::clientCreate(string key, string value)
 
     acks[transID] = tInfo; 
 
-	for (int i = 0; i < NUM_REPLICAS; ++i)
+    auto replicas = findNodes(key);
+
+    for (int index = 0; index < replicas.size(); ++index) 
 	{
-		int index = (target + i) % ring.size();
+		auto replica = replicas[index];
 
-		Node replica = ring[index];
-
-		Message m(transID, memberNode->addr, CREATE, key, value, GetReplicaType(i));
+		Message m(transID, 
+		          memberNode->addr, 
+				  CREATE, 
+				  key, 
+				  value, 
+				  GetReplicaType(index));
 
         string data(m.toString());
 
@@ -242,9 +229,7 @@ void MP2Node::clientCreate(string key, string value)
 		                           replica.getAddress(),
 								   (char *)data.c_str(),
 								   (int)data.length());
-
 	}
-
 }
 
 /**

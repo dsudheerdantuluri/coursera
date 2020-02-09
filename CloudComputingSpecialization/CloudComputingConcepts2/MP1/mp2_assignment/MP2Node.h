@@ -69,7 +69,6 @@ public:
 	void logSuccess(MessageType,bool,int,string,string);
 	void logFail(MessageType,bool,int,string,string);
 	ReplicaType GetReplicaType(int);
-	int getTarget(string);
 
 	// ring functionalities
 	void updateRing();
