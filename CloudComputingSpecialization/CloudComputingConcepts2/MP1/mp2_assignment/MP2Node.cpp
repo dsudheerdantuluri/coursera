@@ -120,7 +120,7 @@ ReplicaType MP2Node::GetReplicaType(int replicaIndex)
 }
 
 void MP2Node::logSuccess(MessageType msgType,
-                         bool coordinator,
+						 bool coordinator,
 						 int transID,
 						 string key,
 						 string value)
@@ -137,6 +137,24 @@ void MP2Node::logSuccess(MessageType msgType,
 							  value);
 
 		break;
+	}
+
+	case READ:
+	{
+		log->logReadSuccess(&memberNode->addr,
+							coordinator,
+							transID,
+							key,
+							value);
+	}
+
+	case UPDATE:
+	{
+		log->logUpdateSuccess(&memberNode->addr,
+							  true,
+							  transID,
+							  key,
+							  value);
 	}
 
 	case DELETE:
@@ -163,6 +181,27 @@ void MP2Node::logFail(MessageType msgType,
 	case CREATE:
 	{
 		log->logCreateFail(&memberNode->addr,
+						   coordinator,
+						   transID,
+						   key,
+						   value);
+
+		break;
+	}
+
+	case READ:
+	{
+		log->logReadFail(&memberNode->addr,
+						 coordinator,
+						 transID,
+						 key);
+
+		break;
+	}
+
+	case UPDATE:
+	{
+		log->logUpdateFail(&memberNode->addr,
 						   coordinator,
 						   transID,
 						   key,
@@ -246,6 +285,36 @@ void MP2Node::clientRead(string key)
 	/*
 	 * Implement this
 	 */
+    auto transID = ++g_transID;
+
+	transInfo tInfo;
+
+	tInfo.type = READ;
+	tInfo.key = key;
+	tInfo.value = "";
+	tInfo.numSucc = 0;
+	tInfo.numFail = 0;
+
+    acks[transID] = tInfo; 
+
+    auto replicas = findNodes(key);
+
+    for (int index = 0; index < replicas.size(); ++index) 
+	{
+		auto replica = replicas[index];
+
+		Message m(transID, 
+		          memberNode->addr, 
+				  READ, 
+				  key);
+
+        string data(m.toString());
+
+	    int size = emulNet->ENsend(&memberNode->addr, 
+		                           replica.getAddress(),
+								   (char *)data.c_str(),
+								   (int)data.length());
+	}
 }
 
 /**
@@ -262,6 +331,38 @@ void MP2Node::clientUpdate(string key, string value)
 	/*
 	 * Implement this
 	 */
+    auto transID = ++g_transID;
+
+	transInfo tInfo;
+
+	tInfo.type = UPDATE;
+	tInfo.key = key;
+	tInfo.value = value;
+	tInfo.numSucc = 0;
+	tInfo.numFail = 0;
+
+    acks[transID] = tInfo; 
+
+    auto replicas = findNodes(key);
+
+    for (int index = 0; index < replicas.size(); ++index) 
+	{
+		auto replica = replicas[index];
+
+		Message m(transID, 
+		          memberNode->addr, 
+				  UPDATE, 
+				  key, 
+				  value, 
+				  GetReplicaType(index));
+
+        string data(m.toString());
+
+	    int size = emulNet->ENsend(&memberNode->addr, 
+		                           replica.getAddress(),
+								   (char *)data.c_str(),
+								   (int)data.length());
+	}
 }
 
 /**
@@ -343,6 +444,9 @@ string MP2Node::readKey(string key)
 	 * Implement this
 	 */
 	// Read key from local hash table and return value
+	Entry e(ht->read(key));
+	
+	return e.value;
 }
 
 /**
@@ -359,6 +463,9 @@ bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica)
 	 * Implement this
 	 */
 	// Update key in local hash table and return true or false
+	Entry e(value, par->getcurrtime(), replica);
+
+	return ht->update(key, e.convertToString());
 }
 
 /**
@@ -451,6 +558,75 @@ void MP2Node::checkMessages()
 
 			break;
 		}
+        
+		case READ:
+		{
+			string value = readKey(m.key);
+
+			if (value != "")
+			{
+				logSuccess(READ,
+						   false,
+						   m.transID,
+						   m.key,
+						   m.value);
+			}
+			else
+			{
+				logFail(READ,
+						false,
+						m.transID,
+						m.key,
+						m.value);
+			}
+
+			Message readReply(m.transID, this->memberNode->addr, value); 
+
+			string data(readReply.toString());
+
+			int size = emulNet->ENsend(&memberNode->addr,
+									   &m.fromAddr,
+									   (char *)data.c_str(),
+									   (int)data.length());
+
+			break;
+		}
+
+		case UPDATE:
+		{
+			bool success = updateKeyValue(m.key,
+										  m.value,
+										  m.replica);
+
+			if (success)
+			{
+				logSuccess(UPDATE,
+						   false,
+						   m.transID,
+						   m.key,
+						   m.value);
+			}
+			else
+			{
+				logFail(UPDATE,
+						false,
+						m.transID,
+						m.key,
+						m.value);
+			}
+
+			Message reply(m.transID, this->memberNode->addr, REPLY, success); 
+
+			string data(reply.toString());
+
+			int size = emulNet->ENsend(&memberNode->addr,
+									   &m.fromAddr,
+									   (char *)data.c_str(),
+									   (int)data.length());
+
+			break;
+
+		}
 
 		case DELETE:
 		{
@@ -483,6 +659,51 @@ void MP2Node::checkMessages()
 									   (int)data.length());
 
 			break;
+		}
+      
+	    case READREPLY:
+		{
+			auto it = acks.find(m.transID);
+
+			if (it != acks.end()) 
+			{
+				if (m.value != "")
+				{
+					it->second.numSucc++;
+				}
+				else
+				{
+					it->second.numFail++;
+				}
+
+				if (it->second.numSucc == (NUM_REPLICAS / 2 + 1))
+				{
+					logSuccess(it->second.type,
+					           true,
+							   m.transID,
+							   it->second.key,
+							   m.value);
+
+					acks.erase(it);
+				}
+				else if (it->second.numFail == (NUM_REPLICAS / 2))
+				{
+					logFail(it->second.type,
+					        true,
+							m.transID,
+							it->second.key,
+							m.value);
+
+					acks.erase(it);
+				}
+			}
+			else 
+			{
+				//ignore
+				// quorum/decision may have already been reached
+			}
+			
+
 		}
 
 		case REPLY:
