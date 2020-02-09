@@ -109,6 +109,9 @@ int MP1Node::initThisNode(Address *joinaddr) {
 	memberNode->timeOutCounter = -1;
     initMemberListTable(memberNode);
 
+    MemberListEntry me(id, 0, 0, 0);
+    this->memberNode->memberList.emplace_back(me);
+    
     return 0;
 }
 
@@ -268,7 +271,11 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
         if (it == ml.end())
         {
             ml[id] = par->getcurrtime();
+            
             log->logNodeAdd(&memberNode->addr, &InputMsg->fromAddr);
+
+            MemberListEntry me(id, 0, 0, 0); 
+            this->memberNode->memberList.emplace_back(me);
         }
 
         return SendMessage(&InputMsg->fromAddr, JOINREP);
@@ -283,8 +290,13 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
         if (it == ml.end())
         {
             ml[id] = par->getcurrtime();
+        
             log->logNodeAdd(&memberNode->addr, &InputMsg->fromAddr);
+        
             memberNode->inGroup = true;
+            
+            MemberListEntry me(id, 0, 0, 0); 
+            this->memberNode->memberList.emplace_back(me);
         }
 
         int selfid = memberNode->addr.addr[0];
@@ -300,10 +312,14 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
             if (it == ml.end())
             {
                 ml[id] = par->getcurrtime();
+                
                 Address member;
                 memset(&member, 0, sizeof(Address));
-                member.addr[0] = id;
+                member.addr[0] = id;                
                 log->logNodeAdd(&memberNode->addr, &member);
+
+                MemberListEntry me(id, 0, 0, 0); 
+                this->memberNode->memberList.emplace_back(me);
             }
         }
 
@@ -327,7 +343,11 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
         else
         {
             ml[id] = par->getcurrtime();
+            
             log->logNodeAdd(&memberNode->addr, &InputMsg->fromAddr);
+            
+            MemberListEntry me(id, 0, 0, 0); 
+            this->memberNode->memberList.emplace_back(me);
         }
 
         int selfid = memberNode->addr.addr[0];
@@ -402,6 +422,15 @@ void MP1Node::nodeLoopOps() {
       *(short *)(&addr.addr[4]) = 0;
       
       log->logNodeRemove(&memberNode->addr, &addr);
+
+      MemberListEntry me(entry, 0, 0, 0);
+      auto position = this->memberNode->memberList.begin();
+      for (auto elem: this->memberNode->memberList) {
+        if (elem.id == me.id) break;
+        ++position;
+      }
+
+      this->memberNode->memberList.erase(position);
     }
 
     //  
