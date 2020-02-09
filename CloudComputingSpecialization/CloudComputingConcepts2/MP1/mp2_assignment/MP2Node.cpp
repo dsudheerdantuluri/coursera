@@ -146,6 +146,8 @@ void MP2Node::logSuccess(MessageType msgType,
 							transID,
 							key,
 							value);
+		
+		break;
 	}
 
 	case UPDATE:
@@ -155,6 +157,8 @@ void MP2Node::logSuccess(MessageType msgType,
 							  transID,
 							  key,
 							  value);
+		
+		break;
 	}
 
 	case DELETE:
@@ -569,7 +573,7 @@ void MP2Node::checkMessages()
 						   false,
 						   m.transID,
 						   m.key,
-						   m.value);
+						   value); 
 			}
 			else
 			{
@@ -577,7 +581,7 @@ void MP2Node::checkMessages()
 						false,
 						m.transID,
 						m.key,
-						m.value);
+						"");
 			}
 
 			Message readReply(m.transID, this->memberNode->addr, value); 
@@ -703,7 +707,7 @@ void MP2Node::checkMessages()
 				// quorum/decision may have already been reached
 			}
 			
-
+            break;
 		}
 
 		case REPLY:
@@ -747,7 +751,8 @@ void MP2Node::checkMessages()
 				//ignore
 				// quorum/decision may have already been reached
 			}
-			
+
+		    break;	
 		}
 		}
 	}
