@@ -19,27 +19,16 @@
 #include "Message.h"
 #include "Queue.h"
 
-typedef struct KVMessageHdr
-{
-	int transID;
-	Address FromAddr;
-	MessageType MsgType;
-} KVMessageHdr;
+#define NUM_REPLICAS 3
 
-typedef struct KVReq
+typedef struct transInfo
 {
-	ReplicaType ReplType;
-	char Key[128];
-	char Value[128];
-} KVReq;
-
-typedef struct KVResp
-{
-	bool Success;
-	MessageType ReqType;
-	char Key[128];
-	char Value[128];
-} KVResp;
+	MessageType type;
+	string key;
+	string value;
+	int numSucc;
+	int numFail;
+} transInfo;
 
 /**
  * CLASS NAME: MP2Node
@@ -70,22 +59,17 @@ private:
 	// Object of Log
 	Log * log;
 
-    map<int, pair<int,int>> acks;  
-    const int numReplicas = 3;
-	const int quorum = 2;
+    map<int, transInfo> acks;  
 public:
 	MP2Node(Member *memberNode, Params *par, EmulNet *emulNet, Log *log, Address *addressOfMember);
 	Member * getMemberNode() {
 		return this->memberNode;
 	}
 
-	void logSuccess(MessageType,string,string);
-	void logFail(MessageType,string,string);
+	void logSuccess(MessageType,bool,int,string,string);
+	void logFail(MessageType,bool,int,string,string);
 	ReplicaType GetReplicaType(int);
 	int getTarget(string);
-    bool SendReq(Address *, MessageType, ReplicaType, string, string);
-    bool SendResp(Address *, string, string, bool);
-    void dispatchToAllReplicas(int,int,MessageType,string,string);
 
 	// ring functionalities
 	void updateRing();

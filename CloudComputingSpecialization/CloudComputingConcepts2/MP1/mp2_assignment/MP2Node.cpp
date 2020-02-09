@@ -59,11 +59,8 @@ void MP2Node::updateRing()
 	 * Step 3: Run the stabilization protocol IF REQUIRED
 	 */
 	// Run stabilization protocol if the hash table size is greater than zero and if there has been a changed in the ring
-	//if ( (ht->currentSize() > 0) && (ring.size() != curMemList.size()) )
-	//{
 	ring = curMemList;
 	stabilizationProtocol();
-	//}
 }
 
 /**
@@ -122,65 +119,6 @@ ReplicaType MP2Node::GetReplicaType(int replicaIndex)
 	}
 }
 
-bool MP2Node::SendResp(Address *ToAddr,
-					   string Key,
-					   string Value,
-					   bool Success)
-{
-	auto OutputMsgSize = sizeof(KVMessageHdr) + sizeof(KVResp);
-	KVMessageHdr *MsgHdr = (KVMessageHdr *)malloc(OutputMsgSize);
-
-	if (!MsgHdr)
-	{
-		return false;
-	}
-
-	MsgHdr->FromAddr = memberNode->addr;
-	MsgHdr->MsgType = REPLY;
-
-	KVResp *MsgBody = (KVResp *)MsgHdr + 1;
-
-	memcpy((void *)MsgBody->Key, Key.c_str(), Key.length() + 1);
-	memcpy((void *)MsgBody->Value, Value.c_str(), Value.length() + 1);
-	MsgBody->Success = Success;
-
-	int size = emulNet->ENsend(&memberNode->addr, ToAddr, (char *)MsgHdr, OutputMsgSize);
-
-	free(MsgHdr);
-
-	return size;
-}
-
-bool MP2Node::SendReq(Address *ToAddr,
-					  MessageType MsgType,
-					  ReplicaType ReplType,
-					  string Key,
-					  string Value)
-{
-	auto OutputMsgSize = sizeof(KVMessageHdr) + sizeof(KVReq);
-	KVMessageHdr *MsgHdr = (KVMessageHdr *)malloc(OutputMsgSize);
-
-	if (!MsgHdr)
-	{
-		return false;
-	}
-
-	MsgHdr->FromAddr = memberNode->addr;
-	MsgHdr->MsgType = MsgType;
-
-	KVReq *MsgBody = (KVReq *)MsgHdr + 1;
-
-	MsgBody->ReplType = ReplType;
-	memcpy((void *)MsgBody->Key, Key.c_str(), Key.length() + 1);
-	memcpy((void *)MsgBody->Value, Value.c_str(), Value.length() + 1);
-
-	int size = emulNet->ENsend(&memberNode->addr, ToAddr, (char *)MsgHdr, OutputMsgSize);
-
-	free(MsgHdr);
-
-	return size;
-}
-
 int MP2Node::getTarget(string key)
 {
 	auto hashKey = hashFunction(key);
@@ -188,7 +126,6 @@ int MP2Node::getTarget(string key)
 	int target = 0;
 	for (target = 0; target < ring.size(); ++target)
 	{
-
 		if (hashKey <= ring[target].getHashCode())
 		{
 			break;
@@ -199,6 +136,8 @@ int MP2Node::getTarget(string key)
 }
 
 void MP2Node::logSuccess(MessageType msgType,
+                         bool coordinator,
+						 int transID,
 						 string key,
 						 string value)
 {
@@ -208,8 +147,8 @@ void MP2Node::logSuccess(MessageType msgType,
 	case CREATE:
 	{
 		log->logCreateSuccess(&memberNode->addr,
-							  true,
-							  g_transID,
+							  coordinator,
+							  transID,
 							  key,
 							  value);
 
@@ -220,7 +159,7 @@ void MP2Node::logSuccess(MessageType msgType,
 	{
 		log->logDeleteSuccess(&memberNode->addr,
 							  true,
-							  g_transID,
+							  transID,
 							  key);
 
 		break;
@@ -229,6 +168,8 @@ void MP2Node::logSuccess(MessageType msgType,
 }
 
 void MP2Node::logFail(MessageType msgType,
+					  bool coordinator,
+					  int transID,
 					  string key,
 					  string value)
 {
@@ -238,8 +179,8 @@ void MP2Node::logFail(MessageType msgType,
 	case CREATE:
 	{
 		log->logCreateFail(&memberNode->addr,
-						   true,
-						   g_transID,
+						   coordinator,
+						   transID,
 						   key,
 						   value);
 
@@ -249,8 +190,8 @@ void MP2Node::logFail(MessageType msgType,
 	case DELETE:
 	{
 		log->logDeleteFail(&memberNode->addr,
-						   true,
-						   g_transID,
+						   coordinator,
+						   transID,
 						   key);
 
 		break;
@@ -258,37 +199,6 @@ void MP2Node::logFail(MessageType msgType,
 	}
 }
 
-void MP2Node::dispatchToAllReplicas(int target,
-                                    int transID,
-									MessageType msgType,
-									string key,
-									string value)
-{
-	bool success = true;
-
-    acks[transID] = make_pair(0,0);
-
-	for (int i = 0; i < numReplicas; ++i)
-	{
-		int index = (target + i) % ring.size();
-
-		Node replica = ring[index];
-
-		Message m(transID, *replica.getAddress(), msgType, key, value, GetReplicaType(i));
-
-	    int size = emulNet->ENsend(&memberNode->addr, ToAddr, (char *)MsgHdr, OutputMsgSize);
-			success = SendReq(replica.getAddress(),
-							  msgType,
-							  GetReplicaType(i),
-							  key,
-							  value);
-	}
-
-	if (!success)
-	{
-		logFail(msgType, key, value);
-	}
-}
 /**
  * FUNCTION NAME: clientCreate
  *
@@ -307,10 +217,18 @@ void MP2Node::clientCreate(string key, string value)
 	auto target = getTarget(key);
 
     auto transID = ++g_transID;
-    
-    acks[transID] = make_pair(0,0);
 
-	for (int i = 0; i < numReplicas; ++i)
+	transInfo tInfo;
+
+	tInfo.type = CREATE;
+	tInfo.key = key;
+	tInfo.value = value;
+	tInfo.numSucc = 0;
+	tInfo.numFail = 0;
+
+    acks[transID] = tInfo; 
+
+	for (int i = 0; i < NUM_REPLICAS; ++i)
 	{
 		int index = (target + i) % ring.size();
 
@@ -324,7 +242,9 @@ void MP2Node::clientCreate(string key, string value)
 		                           replica.getAddress(),
 								   (char *)data.c_str(),
 								   (int)data.length());
+
 	}
+
 }
 
 /**
@@ -373,13 +293,6 @@ void MP2Node::clientDelete(string key)
 	/*
 	 * Implement this
 	 */
-	int target = getTarget(key);
-
-	dispatchToAllReplicas(target,
-	                      ++g_transID,
-						  DELETE,
-						  key,
-						  "");
 }
 
 /**
@@ -396,23 +309,27 @@ bool MP2Node::createKeyValue(string key, string value, ReplicaType replica)
 	 * Implement this
 	 */
 	// Insert key, value, replicaType into the hash table
-	auto success = ht->create(key, value);
+	Message m(value);
+
+	Entry e(m.value, par->getcurrtime(), m.replica);
+
+	auto success = ht->create(key, e.convertToString());
 
 	if (success)
 	{
-		log->logCreateSuccess(&memberNode->addr,
-							  false,
-							  g_transID,
-							  key,
-							  value);
+		logSuccess(CREATE,
+				   false,
+				   m.transID,
+				   key,
+				   value);
 	}
 	else
 	{
-		log->logCreateFail(&memberNode->addr,
-						   false,
-						   g_transID,
-						   key,
-						   value);
+		logFail(CREATE,
+				false,
+				m.transID,
+				key,
+				value);
 	}
 
 	return success;
@@ -518,100 +435,76 @@ void MP2Node::checkMessages()
 
 		string message(data, data + size);
 
+        Message m(message);
 		/*
 		 * Handle the message types here
 		 */
-		KVMessageHdr *pHdr = (KVMessageHdr *)data;
 
-		switch (pHdr->MsgType)
+		switch (m.type)
 		{
 		case CREATE:
 		{
-			KVReq *pBody = (KVReq *)pHdr + 1;
+			bool success = createKeyValue(m.key,
+										  message,
+										  m.replica);
+           
+			Message reply(m.transID, this->memberNode->addr, REPLY, success); 
 
-			string Key(pBody->Key);
-			string Value(pBody->Value);
+			string data(reply.toString());
 
-			bool success = createKeyValue(Key,
-										  Value,
-										  pBody->ReplType);
-
-			if (!SendResp(&pHdr->FromAddr,
-						  Key,
-						  Value,
-						  success))
-			{
-				logFail(pHdr->MsgType,
-						Key,
-						Value);
-			}
+			int size = emulNet->ENsend(&memberNode->addr,
+									   &m.fromAddr,
+									   (char *)data.c_str(),
+									   (int)data.length());
 
 			break;
 		}
 
 		case DELETE:
 		{
-			KVReq *pBody = (KVReq *)pHdr + 1;
-
-			string Key(pBody->Key);
-			string Value(pBody->Value);
-
-			bool success = deletekey(Key);
-
-			if (!SendResp(&pHdr->FromAddr,
-						  Key,
-						  Value,
-						  success))
-			{
-				logFail(pHdr->MsgType,
-						Key,
-						Value);
-			}
 			break;
 		}
 
 		case REPLY:
 		{
-			KVResp *pBody = (KVResp *)pHdr + 1;
-
-			bool success = pBody->Success;
-
-			string Key(pBody->Key);
-			string Value(pBody->Value);
-
-            auto it = acks.find(pHdr->transID);
+			auto it = acks.find(m.transID);
 
 			if (it != acks.end()) 
 			{
-				if (success)
+				if (m.success)
 				{
-					it->second.first++;
+					it->second.numSucc++;
 				}
 				else
 				{
-					it->second.second++;
+					it->second.numFail++;
 				}
 
-				if (it->second.first == (numReplicas / 2 + 1))
+				if (it->second.numSucc == (NUM_REPLICAS / 2 + 1))
 				{
-					logSuccess(pBody->ReqType,
-							   Key,
-							   Value);
-
-					acks.erase(it);
-				}
-				else if (it->second.second == (numReplicas / 2))
-				{
-					logFail(pBody->ReqType,
-							Key,
-							Value);
+					logSuccess(it->second.type,
+					           true,
+							   m.transID,
+							   it->second.key,
+							   it->second.value);
 
 					acks.erase(it);
 				}
-				else if ((it->second.first + it->second.second) == numReplicas)
+				else if (it->second.numFail == (NUM_REPLICAS / 2))
 				{
+					logFail(it->second.type,
+					        true,
+							m.transID,
+							it->second.key,
+							it->second.value);
+
 					acks.erase(it);
 				}
+			}
+			else 
+			{
+				//ignore
+				// quorum/decision may have already been reached
 			}
 			
 		}
@@ -703,11 +596,4 @@ void MP2Node::stabilizationProtocol()
 	/*
 	 * Implement this
 	 */
-	/*
-	cout << "ring : ";
-	for (auto &entry:ring) {
-		cout << (int) entry.getAddress()->addr[0]  << ":" << entry.getHashCode() << " ";
-	}
-	cout << "\n";
-	*/
 }
