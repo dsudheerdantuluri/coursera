@@ -153,7 +153,7 @@ void MP2Node::logSuccess(MessageType msgType,
 	case UPDATE:
 	{
 		log->logUpdateSuccess(&memberNode->addr,
-							  true,
+							  coordinator,
 							  transID,
 							  key,
 							  value);
@@ -164,7 +164,7 @@ void MP2Node::logSuccess(MessageType msgType,
 	case DELETE:
 	{
 		log->logDeleteSuccess(&memberNode->addr,
-							  true,
+							  coordinator,
 							  transID,
 							  key);
 
@@ -248,6 +248,7 @@ void MP2Node::clientCreate(string key, string value)
 	tInfo.type = CREATE;
 	tInfo.key = key;
 	tInfo.value = value;
+	tInfo.timestamp = par->getcurrtime();
 	tInfo.numSucc = 0;
 	tInfo.numFail = 0;
 
@@ -296,6 +297,7 @@ void MP2Node::clientRead(string key)
 	tInfo.type = READ;
 	tInfo.key = key;
 	tInfo.value = "";
+	tInfo.timestamp = par->getcurrtime();
 	tInfo.numSucc = 0;
 	tInfo.numFail = 0;
 
@@ -342,6 +344,7 @@ void MP2Node::clientUpdate(string key, string value)
 	tInfo.type = UPDATE;
 	tInfo.key = key;
 	tInfo.value = value;
+	tInfo.timestamp = par->getcurrtime();
 	tInfo.numSucc = 0;
 	tInfo.numFail = 0;
 
@@ -390,6 +393,7 @@ void MP2Node::clientDelete(string key)
 	tInfo.type = DELETE;
 	tInfo.key = key;
 	tInfo.value = "";
+	tInfo.timestamp = par->getcurrtime();
 	tInfo.numSucc = 0;
 	tInfo.numFail = 0;
 
@@ -761,6 +765,28 @@ void MP2Node::checkMessages()
 	 * This function should also ensure all READ and UPDATE operation
 	 * get QUORUM replies
 	 */
+	int currtime = par->getcurrtime();
+	using mapIter = map<int, transInfo>::iterator; 
+
+    mapIter it = acks.begin();
+
+	while (it != acks.end())
+	{
+		if (currtime - it->second.timestamp >= 2)
+		{
+			logFail(it->second.type,
+					true,
+					it->first,
+					it->second.key,
+					it->second.value);
+
+			it = acks.erase(it);
+		}
+		else
+		{
+			++it;
+		}
+	}
 }
 
 /**
@@ -842,4 +868,6 @@ void MP2Node::stabilizationProtocol()
 	/*
 	 * Implement this
 	 */
+
+	ht->hashTable;
 }

@@ -26,6 +26,7 @@ typedef struct transInfo
 	MessageType type;
 	string key;
 	string value;
+	int timestamp;
 	int numSucc;
 	int numFail;
 } transInfo;
