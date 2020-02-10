@@ -869,5 +869,18 @@ void MP2Node::stabilizationProtocol()
 	 * Implement this
 	 */
 
-	ht->hashTable;
+	vector<pair<string, string>> 
+	allKVPairs(ht->hashTable.begin(), ht->hashTable.end());
+
+	ht->hashTable.clear();
+
+    for (auto kv: allKVPairs)
+	{
+		string key(kv.first);
+
+		Entry e(kv.second);
+
+	    clientCreate(key, e.value);
+	}
+
 }
