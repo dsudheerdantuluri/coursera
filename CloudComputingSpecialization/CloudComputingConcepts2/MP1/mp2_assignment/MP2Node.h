@@ -60,7 +60,8 @@ private:
 	// Object of Log
 	Log * log;
 
-    map<int, transInfo> acks;  
+    map<int, transInfo> acks;
+	bool stabilizing = false; 
 public:
 	MP2Node(Member *memberNode, Params *par, EmulNet *emulNet, Log *log, Address *addressOfMember);
 	Member * getMemberNode() {

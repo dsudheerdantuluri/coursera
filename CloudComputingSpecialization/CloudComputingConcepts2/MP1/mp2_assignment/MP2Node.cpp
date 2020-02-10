@@ -125,6 +125,8 @@ void MP2Node::logSuccess(MessageType msgType,
 						 string key,
 						 string value)
 {
+	if (transID == 0) return;
+
 	switch (msgType)
 	{
 
@@ -179,6 +181,8 @@ void MP2Node::logFail(MessageType msgType,
 					  string key,
 					  string value)
 {
+	if (transID == 0) return;
+
 	switch (msgType)
 	{
 
@@ -241,7 +245,7 @@ void MP2Node::clientCreate(string key, string value)
 	 * Implement this
 	 */
 
-    auto transID = ++g_transID;
+    auto transID = (!stabilizing) ? ++g_transID : 0;
 
 	transInfo tInfo;
 
@@ -868,7 +872,8 @@ void MP2Node::stabilizationProtocol()
 	/*
 	 * Implement this
 	 */
-
+	stabilizing = true;
+	
 	vector<pair<string, string>> 
 	allKVPairs(ht->hashTable.begin(), ht->hashTable.end());
 
@@ -883,4 +888,5 @@ void MP2Node::stabilizationProtocol()
 	    clientCreate(key, e.value);
 	}
 
+	stabilizing = false;
 }
