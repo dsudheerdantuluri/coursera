@@ -456,7 +456,11 @@ string MP2Node::readKey(string key)
 	 * Implement this
 	 */
 	// Read key from local hash table and return value
-	Entry e(ht->read(key));
+    string entryStr = ht->read(key);
+
+	if (entryStr == "") return entryStr;
+
+	Entry e(entryStr);
 	
 	return e.value;
 }
